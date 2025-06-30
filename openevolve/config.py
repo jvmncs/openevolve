@@ -32,7 +32,7 @@ class LLMModelConfig:
     timeout: int = None
     retries: int = None
     retry_delay: int = None
-    
+
     # Reproducibility
     random_seed: Optional[int] = None
 
@@ -78,7 +78,9 @@ class LLMConfig(LLMModelConfig):
         if self.primary_model_weight:
             self.models[0].weight = self.primary_model_weight
 
-        if (self.secondary_model or self.secondary_model_weight) and len(self.models) < 2:
+        if (self.secondary_model or self.secondary_model_weight) and len(
+            self.models
+        ) < 2:
             # Ensure we have a second model
             self.models.append(LLMModelConfig())
         if self.secondary_model:
@@ -104,7 +106,9 @@ class LLMConfig(LLMModelConfig):
         }
         self.update_model_params(shared_config)
 
-    def update_model_params(self, args: Dict[str, Any], overwrite: bool = False) -> None:
+    def update_model_params(
+        self, args: Dict[str, Any], overwrite: bool = False
+    ) -> None:
         """Update model parameters for all models"""
         for model in self.models + self.evaluator_models:
             for key, value in args.items():
@@ -161,7 +165,9 @@ class DatabaseConfig:
     diversity_metric: str = "edit_distance"  # Options: "edit_distance", "feature_based"
 
     # Feature map dimensions for MAP-Elites
-    feature_dimensions: List[str] = field(default_factory=lambda: ["score", "complexity"])
+    feature_dimensions: List[str] = field(
+        default_factory=lambda: ["score", "complexity"]
+    )
     feature_bins: int = 10
 
     # Migration parameters for island-based evolution
@@ -206,6 +212,9 @@ class EvaluatorConfig:
     enable_artifacts: bool = True
     max_artifact_storage: int = 100 * 1024 * 1024  # 100MB per program
 
+    # Sandboxed execution
+    use_sandboxed_execution: bool = False  # Use Modal sandboxes for evaluation
+
 
 @dataclass
 class Config:
@@ -243,7 +252,9 @@ class Config:
 
         # Update top-level fields
         for key, value in config_dict.items():
-            if key not in ["llm", "prompt", "database", "evaluator"] and hasattr(config, key):
+            if key not in ["llm", "prompt", "database", "evaluator"] and hasattr(
+                config, key
+            ):
                 setattr(config, key, value)
 
         # Update nested configs
@@ -260,7 +271,7 @@ class Config:
             config.prompt = PromptConfig(**config_dict["prompt"])
         if "database" in config_dict:
             config.database = DatabaseConfig(**config_dict["database"])
-        
+
         # Ensure database inherits the random seed if not explicitly set
         if config.database.random_seed is None and config.random_seed is not None:
             config.database.random_seed = config.random_seed
