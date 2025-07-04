@@ -5,21 +5,19 @@ log_level: "INFO"
 
 # LLM configuration
 llm:
-  primary_model: "gemini-2.0-flash-lite"
+  primary_model: "Qwen/Qwen3-30B-A3B"
   # primary_model: "llama3.1-8b"
-  primary_model_weight: 0.8
-  secondary_model: "gemini-2.5-flash"
-  # secondary_model: "llama-4-scout-17b-16e-instruct"
-  secondary_model_weight: 0.2
-  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  primary_model_weight: 1.0
+  api_base: "https://modal-labs-jason-dev--openevolve-inference-inference-serve.modal.run/v1"
   # api_base: "https://api.cerebras.ai/v1"
-  temperature: 0.7
+  temperature: 0.6
   top_p: 0.95
-  max_tokens: 4096
+  max_tokens: 8192
+  timeout: 600
 
 # Prompt configuration
 prompt:
-  system_message: "You are an expert programmer specializing in optimization algorithms. Your task is to improve a function minimization algorithm to find the global minimum of a complex function with many local minima. The function is f(x, y) = sin(x) * cos(y) + sin(x*y) + (x^2 + y^2)/20. Focus on improving the search_algorithm function to reliably find the global minimum, escaping local minima that might trap simple algorithms."
+  system_message: "The assistant is an expert programmer specializing in optimization algorithms. The assistant's task is to improve a function minimization algorithm to find the global minimum of a complex function with many local minima. The function is f(x, y) = sin(x) * cos(y) + sin(x*y) + (x^2 + y^2)/20. The assistant focuses on improving the search_algorithm function to reliably find the global minimum, escaping local minima that might trap simple algorithms."
   num_top_programs: 3
   use_template_stochasticity: true
 
