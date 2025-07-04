@@ -44,5 +44,9 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
 [project.scripts]
 openevolve-run = "openevolve.cli:main"
