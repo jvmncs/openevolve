@@ -1,0 +1,18 @@
+model_id: Qwen/Qwen3-235B-A22B
+model_rev: c30ce1aa8a0ff9cebf95e95b4b8fd90826043fd0
+target_input_concurrency: 500
+max_input_concurrency: 2000
+vllm_cfg:
+  - "--tensor-parallel-size=6"
+  - "--gpu-memory-utilization=0.95"
+deployment_config:
+  num_nodes: 1
+  gpus_per_node: 6
+  gpu_type: A100-80GB
+timeout: 10800
+scaledown_window: 900
+deployment_name: openevolve-inference
+deployment_tags:
+  - openevolve
+  - qwen3-235b
+  - 6xA100

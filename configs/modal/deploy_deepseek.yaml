@@ -1,0 +1,17 @@
+model_id: deepseek-ai/DeepSeek-R1-0528
+model_rev: 4236a6af538feda4548eca9ab308586007567f52
+target_input_concurrency: 8
+max_input_concurrency: 16
+vllm_cfg:
+  - "--tensor-parallel-size=8"
+deployment_config:
+  num_nodes: 1
+  gpus_per_node: 8
+  gpu_type: B200
+timeout: 10800
+scaledown_window: 900
+deployment_name: openevolve-inference
+deployment_tags:
+  - openevolve
+  - r1
+  - 8xB200
