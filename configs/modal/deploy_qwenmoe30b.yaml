@@ -1,18 +1,18 @@
 model_id: Qwen/Qwen3-30B-A3B
 model_rev: ae659febe817e4b3ebd7355f47792725801204c9
-target_input_concurrency: 500
-max_input_concurrency: 2000
+target_input_concurrency: 100
+max_input_concurrency: 400
 vllm_cfg:
   - "--gpu-memory-utilization=0.95"
   - "--reasoning-parser=qwen3"
 deployment_config:
   num_nodes: 1
   gpus_per_node: 1
-  gpu_type: A100-80GB
+  gpu_type: H100
 timeout: 10800
 scaledown_window: 900
 deployment_name: openevolve-inference
 deployment_tags:
   - openevolve
   - qwen3-30B-A3B
-  - 1xA100
+  - 1xH100

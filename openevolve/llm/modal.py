@@ -39,20 +39,6 @@ config_vol = modal.Volume.from_name(
 inference_secret = modal.Secret.from_name("openevolve-vllm-secret")
 
 
-@app.cls(
-    image=inference_image,
-    gpu="H100",
-    timeout=30 * 60,
-    scaledown_window=15 * 60,
-    volumes={
-        "/root/.cache/vllm": vllm_cache,
-        "/root/.cache/flashinfer": flashinfer_cache,
-        "/root/.cache/huggingface": bigmodel_cache,
-        "/root/config": config_vol,
-    },
-    secrets=[inference_secret],
-)
-@modal.concurrent(max_inputs=90, target_inputs=18)
 class Inference:
     """Serve a model via vLLM with readiness check."""
 
@@ -124,8 +110,6 @@ class Inference:
 
 
 def build_inference_server(cfg: InferenceConfig):
-    inference_kls = modal.Cls.from_name(cfg.deployment_name or APP_NAME, "Inference")
-
     vllm_full_cfg = {
         "MODEL_ID": cfg.model_id,
         "MODEL_REV": cfg.model_rev,
@@ -137,17 +121,28 @@ def build_inference_server(cfg: InferenceConfig):
     with config_vol.batch_upload(force=True) as v:
         v.put_file(config_bytes, "vllm_config.json")
 
-    opts = {
+    cls_opts = {
+        "image": inference_image,
         "gpu": cfg.deployment_config.gpu_str(),
+        "volumes": {
+            "/root/.cache/vllm": vllm_cache,
+            "/root/.cache/flashinfer": flashinfer_cache,
+            "/root/.cache/huggingface": bigmodel_cache,
+            "/root/config": config_vol,
+        },
+        "secrets": [inference_secret],
     }
-    if cfg.timeout is not None:
-        opts["timeout"] = cfg.timeout
-    if cfg.scaledown_window is not None:
-        opts["scaledown_window"] = cfg.scaledown_window
 
-    return inference_kls.with_options(**opts).with_concurrency(
-        max_inputs=cfg.max_input_concurrency,
-        target_inputs=cfg.target_input_concurrency,
+    if cfg.timeout is not None:
+        cls_opts["timeout"] = cfg.timeout
+    if cfg.scaledown_window is not None:
+        cls_opts["scaledown_window"] = cfg.scaledown_window
+
+    return app.cls(**cls_opts)(
+        modal.concurrent(
+            max_inputs=cfg.max_input_concurrency,
+            target_inputs=cfg.target_input_concurrency,
+        )(Inference)
     )
 
 
@@ -176,12 +171,12 @@ if __name__ == "__main__":
     else:
         tag = ""
 
+    print(f"Building inference service for model {inference_config.model_id}...")
+    inference_service = build_inference_server(inference_config)
+
     with modal.enable_output():
         print(f"Deploying app as '{name or APP_NAME}' with 'tag={tag or 'None'}'")
         app.deploy(name=name, tag=tag)
-
-        print(f"Building inference service for model {inference_config.model_id}...")
-        inference_service = build_inference_server(inference_config)
 
         # Boot the service
         print("Booting inference service...")
