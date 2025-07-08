@@ -6,20 +6,16 @@ Modal sandboxes to ensure security and reproducibility.
 """
 
 import asyncio
+import importlib.util
 import io
 import json
 import logging
-import os
-import sys
-import importlib.util
-import tempfile
-import functools
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict
 
 import modal
 
-from .modal_app import app, evaluation_volume, database_volume
+from openevolve.modal_app import app, cpu_image, evaluation_volume
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +77,7 @@ def load_sandbox_image(example_dir: str) -> "modal.Image":
 
 
 @app.cls(
+    image=cpu_image,
     volumes={"/eval": evaluation_volume},
     timeout=60 * 60,  # Keep alive for 1 hour idle
 )

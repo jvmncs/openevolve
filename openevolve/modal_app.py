@@ -23,3 +23,4 @@ evaluation_volume = modal.Volume.from_name(
     "openevolve-evaluation", create_if_missing=True
 )
 database_volume = modal.Volume.from_name("openevolve-db", create_if_missing=True)
+inference_secret = modal.Secret.from_name("openevolve-vllm-secret")

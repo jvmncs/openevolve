@@ -3,12 +3,6 @@ Distributed controller for OpenEvolve using Modal for auto-scaling
 
 This implementation splits the evolution loop into distributed Modal Functions
 while maintaining full compatibility with the original sequential Controller.
-
-Fixes all issues identified by the Oracle:
-- Proper Modal initialization with @modal.enter()
-- Correct database configuration and serialization
-- Full feature parity with original Controller
-- No stubbed methods or TODOs
 """
 
 import asyncio
@@ -16,28 +10,21 @@ import logging
 import os
 import time
 import uuid
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import modal
 
 from openevolve.config import Config, load_config
-from openevolve.modal_app import app, cpu_image, evaluation_volume, database_volume
 from openevolve.database import Program, ProgramDatabase
-from openevolve.evaluator import Evaluator
 from openevolve.llm.ensemble import LLMEnsemble
+from openevolve.modal_app import app, cpu_image, database_volume, inference_secret
 from openevolve.prompt.sampler import PromptSampler
 from openevolve.utils.code_utils import (
     apply_diff,
     extract_code_language,
     extract_diffs,
     format_diff_summary,
-    parse_evolve_blocks,
     parse_full_rewrite,
-)
-from openevolve.utils.format_utils import (
-    format_metrics_safe,
-    format_improvement_safe,
 )
 
 logger = logging.getLogger(__name__)
@@ -196,8 +183,8 @@ class ControllerHub:
 
 @app.function(
     image=cpu_image,
-    min_containers=0,  # Pay-as-you-go
-    max_containers=400,  # Autoscale ceiling
+    min_containers=0,
+    max_containers=400,
     timeout=900,
 )
 async def evolve_worker(config: Config, evaluation_file: str):
@@ -313,13 +300,24 @@ async def evolve_worker(config: Config, evaluation_file: str):
     image=cpu_image,
     min_containers=0,
     max_containers=50,  # CPU-only for HTTP calls
-    timeout=300,
+    timeout=60 * 10,
+    secrets=[inference_secret],
 )
 async def llm_generate(prompt: Dict[str, str], config: Config) -> str:
     """
     LLM generation using existing deployed Modal vLLM endpoint.
     Makes HTTP calls to the deployed inference server.
     """
+    vllm_secret = os.environ.get("VLLM_API_KEY")
+    if vllm_secret is None:
+        logger.warning(
+            "VLLM_API_KEY secret not found in environment. "
+            "Please ensure the inference_secret is properly configured in Modal "
+            "and contains the VLLM_API_KEY for accessing the LLM endpoint."
+        )
+    else:
+        os.environ["OPENAI_API_KEY"] = vllm_secret
+
     try:
         # Use existing LLM ensemble logic
         llm_ensemble = LLMEnsemble(config.llm.models)
