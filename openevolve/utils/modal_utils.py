@@ -54,9 +54,9 @@ class ModalClusterConfig:
         return {
             "num_nodes": self.num_nodes,
             "gpus_per_node": self.gpus_per_node,
-            "gpu_type": self.gpu_type.value
-            if isinstance(self.gpu_type, ModalGPU)
-            else self.gpu_type,
+            "gpu_type": (
+                self.gpu_type.value if isinstance(self.gpu_type, ModalGPU) else self.gpu_type
+            ),
         }
 
 

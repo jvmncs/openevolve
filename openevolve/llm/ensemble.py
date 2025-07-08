@@ -27,13 +27,19 @@ class LLMEnsemble:
         self.weights = [model.weight for model in models_cfg]
         total = sum(self.weights)
         self.weights = [w / total for w in self.weights]
-        
+
         # Set up random state for deterministic model selection
         self.random_state = random.Random()
         # Initialize with seed from first model's config if available
-        if models_cfg and hasattr(models_cfg[0], 'random_seed') and models_cfg[0].random_seed is not None:
+        if (
+            models_cfg
+            and hasattr(models_cfg[0], "random_seed")
+            and models_cfg[0].random_seed is not None
+        ):
             self.random_state.seed(models_cfg[0].random_seed)
-            logger.debug(f"LLMEnsemble: Set random seed to {models_cfg[0].random_seed} for deterministic model selection")
+            logger.debug(
+                f"LLMEnsemble: Set random seed to {models_cfg[0].random_seed} for deterministic model selection"
+            )
 
         logger.info(
             f"Initialized LLM ensemble with models: "

@@ -9,10 +9,7 @@ import os
 import random
 import time
 from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-
-import numpy as np
 
 from openevolve.config import DatabaseConfig
 from openevolve.utils.code_utils import calculate_edit_distance
@@ -142,7 +139,10 @@ class ProgramDatabase:
         logger.info(f"Initialized program database with {len(self.programs)} programs")
 
     def add(
-        self, program: Program, iteration: int = None, target_island: Optional[int] = None
+        self,
+        program: Program,
+        iteration: int = None,
+        target_island: Optional[int] = None,
     ) -> str:
         """
         Add a program to the database
@@ -269,7 +269,9 @@ class ProgramDatabase:
         elif self.programs and all("combined_score" in p.metrics for p in self.programs.values()):
             # Sort by combined_score if it exists (preferred method)
             sorted_programs = sorted(
-                self.programs.values(), key=lambda p: p.metrics["combined_score"], reverse=True
+                self.programs.values(),
+                key=lambda p: p.metrics["combined_score"],
+                reverse=True,
             )
             if sorted_programs:
                 logger.debug(f"Found best program by combined_score: {sorted_programs[0].id}")
@@ -301,7 +303,7 @@ class ProgramDatabase:
                 old_score = self.programs[old_id].metrics["combined_score"]
                 new_score = self.programs[self.best_program_id].metrics["combined_score"]
                 logger.info(
-                    f"Score change: {old_score:.4f} → {new_score:.4f} ({new_score-old_score:+.4f})"
+                    f"Score change: {old_score:.4f} → {new_score:.4f} ({new_score - old_score:+.4f})"
                 )
 
         return sorted_programs[0] if sorted_programs else None
@@ -585,7 +587,8 @@ class ProgramDatabase:
                         for other in sample_programs
                     ) / len(sample_programs)
                     bin_idx = min(
-                        int(avg_distance / 1000 * self.feature_bins), self.feature_bins - 1
+                        int(avg_distance / 1000 * self.feature_bins),
+                        self.feature_bins - 1,
                     )
                 coords.append(bin_idx)
             elif dim == "score":
@@ -1072,7 +1075,11 @@ class ProgramDatabase:
                         parent_id=migrant.id,
                         generation=migrant.generation,
                         metrics=migrant.metrics.copy(),
-                        metadata={**migrant.metadata, "island": target_island, "migrant": True},
+                        metadata={
+                            **migrant.metadata,
+                            "island": target_island,
+                            "migrant": True,
+                        },
                     )
 
                     # Add to target island

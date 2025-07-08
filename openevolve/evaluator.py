@@ -93,9 +93,7 @@ class Evaluator:
                 sys.path.insert(0, eval_dir)
                 logger.debug(f"Added {eval_dir} to Python path for local imports")
 
-            spec = importlib.util.spec_from_file_location(
-                "evaluation_module", self.evaluation_file
-            )
+            spec = importlib.util.spec_from_file_location("evaluation_module", self.evaluation_file)
             if spec is None or spec.loader is None:
                 raise ImportError(f"Failed to load spec from {self.evaluation_file}")
 
@@ -109,9 +107,7 @@ class Evaluator:
                 )
 
             self.evaluate_function = module.evaluate
-            logger.info(
-                f"Successfully loaded evaluation function from {self.evaluation_file}"
-            )
+            logger.info(f"Successfully loaded evaluation function from {self.evaluation_file}")
         except Exception as e:
             logger.error(f"Error loading evaluation function: {str(e)}")
             raise
@@ -159,11 +155,7 @@ class Evaluator:
                 eval_result = self._process_evaluation_result(result)
 
                 # Check if this was a timeout and capture artifacts if enabled
-                if (
-                    artifacts_enabled
-                    and program_id
-                    and eval_result.metrics.get("timeout") is True
-                ):
+                if artifacts_enabled and program_id and eval_result.metrics.get("timeout") is True:
                     if program_id not in self._pending_artifacts:
                         self._pending_artifacts[program_id] = {}
 
@@ -179,16 +171,12 @@ class Evaluator:
                 # Add LLM feedback if configured
                 llm_eval_result = None
                 if self.config.use_llm_feedback and self.llm_ensemble:
-                    llm_result = await self._llm_evaluate(
-                        program_code, program_id=program_id
-                    )
+                    llm_result = await self._llm_evaluate(program_code, program_id=program_id)
                     llm_eval_result = self._process_evaluation_result(llm_result)
 
                     # Combine metrics
                     for name, value in llm_result.metrics.items():
-                        eval_result.metrics[f"llm_{name}"] = (
-                            value * self.config.llm_feedback_weight
-                        )
+                        eval_result.metrics[f"llm_{name}"] = value * self.config.llm_feedback_weight
 
                 # Store artifacts if enabled and present
                 if (
@@ -204,18 +192,14 @@ class Evaluator:
 
                     # Merge eval_result artifacts with llm artifacts if they exist
                     if eval_result.has_artifacts():
-                        self._pending_artifacts[program_id].update(
-                            eval_result.artifacts
-                        )
+                        self._pending_artifacts[program_id].update(eval_result.artifacts)
                         logger.debug(
                             f"Program{program_id_str} returned artifacts: "
                             f"{eval_result.artifacts}"
                         )
 
                     if llm_eval_result and llm_eval_result.has_artifacts():
-                        self._pending_artifacts[program_id].update(
-                            llm_eval_result.artifacts
-                        )
+                        self._pending_artifacts[program_id].update(llm_eval_result.artifacts)
                         logger.debug(
                             f"Program{program_id_str} returned LLM artifacts: "
                             f"{llm_eval_result.artifacts}"
@@ -297,9 +281,7 @@ class Evaluator:
             logger.warning(f"Unexpected evaluation result type: {type(result)}")
             return EvaluationResult(metrics={"error": 0.0})
 
-    def get_pending_artifacts(
-        self, program_id: str
-    ) -> Optional[Dict[str, Union[str, bytes]]]:
+    def get_pending_artifacts(self, program_id: str) -> Optional[Dict[str, Union[str, bytes]]]:
         """
         Get and clear pending artifacts for a program
 
@@ -335,17 +317,13 @@ class Evaluator:
             program_id = str(uuid.uuid4())
 
             # Use sandbox executor
-            return await self.sandbox_executor.evaluate_program(
-                program_code, program_id
-            )
+            return await self.sandbox_executor.evaluate_program(program_code, program_id)
 
         # Otherwise use the original local execution
         # Create a coroutine that runs the evaluation function in an executor
         async def run_evaluation():
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None, self.evaluate_function, program_path
-            )
+            return await loop.run_in_executor(None, self.evaluate_function, program_path)
 
         # Run the evaluation with timeout - let exceptions bubble up for retry handling
         result = await asyncio.wait_for(run_evaluation(), timeout=self.config.timeout)
@@ -377,9 +355,7 @@ class Evaluator:
                 sys.path.insert(0, eval_dir)
                 logger.debug(f"Added {eval_dir} to Python path for cascade evaluation")
 
-            spec = importlib.util.spec_from_file_location(
-                "evaluation_module", self.evaluation_file
-            )
+            spec = importlib.util.spec_from_file_location("evaluation_module", self.evaluation_file)
             if spec is None or spec.loader is None:
                 return await self._direct_evaluate(program_path)
 
@@ -395,18 +371,12 @@ class Evaluator:
 
                 async def run_stage1():
                     loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(
-                        None, module.evaluate_stage1, program_path
-                    )
+                    return await loop.run_in_executor(None, module.evaluate_stage1, program_path)
 
-                stage1_result = await asyncio.wait_for(
-                    run_stage1(), timeout=self.config.timeout
-                )
+                stage1_result = await asyncio.wait_for(run_stage1(), timeout=self.config.timeout)
                 stage1_eval_result = self._process_evaluation_result(stage1_result)
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"Stage 1 evaluation timed out after {self.config.timeout}s"
-                )
+                logger.warning(f"Stage 1 evaluation timed out after {self.config.timeout}s")
                 return EvaluationResult(
                     metrics={"stage1_passed": 0.0, "error": 0.0, "timeout": True},
                     artifacts={
@@ -441,18 +411,12 @@ class Evaluator:
 
                 async def run_stage2():
                     loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(
-                        None, module.evaluate_stage2, program_path
-                    )
+                    return await loop.run_in_executor(None, module.evaluate_stage2, program_path)
 
-                stage2_result = await asyncio.wait_for(
-                    run_stage2(), timeout=self.config.timeout
-                )
+                stage2_result = await asyncio.wait_for(run_stage2(), timeout=self.config.timeout)
                 stage2_eval_result = self._process_evaluation_result(stage2_result)
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"Stage 2 evaluation timed out after {self.config.timeout}s"
-                )
+                logger.warning(f"Stage 2 evaluation timed out after {self.config.timeout}s")
                 # Capture stage 2 failure, but keep stage 1 results
                 stage1_eval_result.artifacts.update(
                     {
@@ -492,9 +456,7 @@ class Evaluator:
             merged_artifacts.update(stage1_eval_result.artifacts)
             merged_artifacts.update(stage2_eval_result.artifacts)
 
-            merged_result = EvaluationResult(
-                metrics=merged_metrics, artifacts=merged_artifacts
-            )
+            merged_result = EvaluationResult(metrics=merged_metrics, artifacts=merged_artifacts)
 
             # Check threshold for stage 3
             if len(self.config.cascade_thresholds) < 2 or not self._passes_threshold(
@@ -511,18 +473,12 @@ class Evaluator:
 
                 async def run_stage3():
                     loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(
-                        None, module.evaluate_stage3, program_path
-                    )
+                    return await loop.run_in_executor(None, module.evaluate_stage3, program_path)
 
-                stage3_result = await asyncio.wait_for(
-                    run_stage3(), timeout=self.config.timeout
-                )
+                stage3_result = await asyncio.wait_for(run_stage3(), timeout=self.config.timeout)
                 stage3_eval_result = self._process_evaluation_result(stage3_result)
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"Stage 3 evaluation timed out after {self.config.timeout}s"
-                )
+                logger.warning(f"Stage 3 evaluation timed out after {self.config.timeout}s")
                 # Capture stage 3 failure, but keep previous results
                 merged_result.artifacts.update(
                     {
@@ -567,9 +523,7 @@ class Evaluator:
                 },
             )
 
-    async def _llm_evaluate(
-        self, program_code: str, program_id: str = ""
-    ) -> Dict[str, float]:
+    async def _llm_evaluate(self, program_code: str, program_id: str = "") -> Dict[str, float]:
         """
         Use LLM to evaluate code quality
 
@@ -637,11 +591,7 @@ class Evaluator:
                             metrics[key] = float(value)
 
                     # Weight of the model in the ensemble
-                    weight = (
-                        self.llm_ensemble.weights[i]
-                        if self.llm_ensemble.weights
-                        else 1.0
-                    )
+                    weight = self.llm_ensemble.weights[i] if self.llm_ensemble.weights else 1.0
 
                     # Average the metrics
                     for name, value in metrics.items():
