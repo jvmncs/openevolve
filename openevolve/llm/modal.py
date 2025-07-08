@@ -30,12 +30,8 @@ inference_image = (
 )
 bigmodel_cache = modal.Volume.from_name("big-model-hfcache", create_if_missing=True)
 vllm_cache = modal.Volume.from_name("openevolve-vllm-cache", create_if_missing=True)
-flashinfer_cache = modal.Volume.from_name(
-    "openevolve-flashinfer-cache", create_if_missing=True
-)
-config_vol = modal.Volume.from_name(
-    "openevolve-vllm-config-cache", create_if_missing=True
-)
+flashinfer_cache = modal.Volume.from_name("openevolve-flashinfer-cache", create_if_missing=True)
+config_vol = modal.Volume.from_name("openevolve-vllm-config-cache", create_if_missing=True)
 inference_secret = modal.Secret.from_name("openevolve-vllm-secret")
 
 
@@ -149,12 +145,8 @@ def build_inference_server(cfg: InferenceConfig):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Deploy OpenEvolve LLM inference server"
-    )
-    parser.add_argument(
-        "--config", required=True, help="Path to inference configuration YAML file"
-    )
+    parser = argparse.ArgumentParser(description="Deploy OpenEvolve LLM inference server")
+    parser.add_argument("--config", required=True, help="Path to inference configuration YAML file")
 
     args = parser.parse_args()
     config = args.config

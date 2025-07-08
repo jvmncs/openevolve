@@ -73,9 +73,9 @@ async def test_sandbox_executor_single_evaluation(sandbox_executor, test_program
     assert isinstance(result, dict)
     assert len(result) > 0
     # Check that evaluation succeeded (not just error: 0.0)
-    assert not (len(result) == 1 and result.get("error") == 0.0), (
-        f"Evaluation failed with error result: {result}"
-    )
+    assert not (
+        len(result) == 1 and result.get("error") == 0.0
+    ), f"Evaluation failed with error result: {result}"
     assert all(isinstance(v, (int, float)) for v in result.values())
 
 
@@ -125,9 +125,9 @@ def run_search():
     # For a successful evaluation, we should have metrics other than just 'error'
     assert len(result) > 0, f"Expected non-empty result, got: {result}"
     # If we only have error: 0.0, that indicates a failure
-    assert not (len(result) == 1 and result.get("error") == 0.0), (
-        f"Evaluation appears to have failed with only error metric: {result}"
-    )
+    assert not (
+        len(result) == 1 and result.get("error") == 0.0
+    ), f"Evaluation appears to have failed with only error metric: {result}"
 
 
 @pytest.mark.asyncio
@@ -202,6 +202,6 @@ def run_search():
     for i, result in enumerate(results):
         assert isinstance(result, dict)
         assert len(result) > 0
-        assert not (len(result) == 1 and result.get("error") == 0.0), (
-            f"Evaluation {i} failed with error result: {result}"
-        )
+        assert not (
+            len(result) == 1 and result.get("error") == 0.0
+        ), f"Evaluation {i} failed with error result: {result}"

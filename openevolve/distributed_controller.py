@@ -171,13 +171,17 @@ class ControllerHub:
                 "num_programs": len(self.db.programs),
                 "current_iteration": self.current_iteration,
                 "pending_tasks": self.pending_tasks,
-                "best_score": self.db.get_best_program().metrics.get("score", 0)
-                if self.db.programs
-                else 0,
+                "best_score": (
+                    self.db.get_best_program().metrics.get("score", 0)
+                    if self.db.programs
+                    else 0
+                ),
                 "current_island": getattr(self.db, "current_island", 0),
-                "best_program_id": self.db.best_program_id
-                if hasattr(self.db, "best_program_id")
-                else None,
+                "best_program_id": (
+                    self.db.best_program_id
+                    if hasattr(self.db, "best_program_id")
+                    else None
+                ),
             }
 
 
@@ -426,9 +430,10 @@ class DistributedController:
 
         # Set random seed for reproducibility (same as original)
         if self.config.random_seed is not None:
-            import random
-            import numpy as np
             import hashlib
+            import random
+
+            import numpy as np
 
             random.seed(self.config.random_seed)
             np.random.seed(self.config.random_seed)

@@ -3,6 +3,7 @@ Modal configuration for the function minimization example
 """
 
 import pathlib
+
 import modal
 
 local_req_path = pathlib.Path(__file__).parent / "requirements.txt"

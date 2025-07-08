@@ -260,10 +260,9 @@ def build_sandbox_image(evaluation_file: str) -> "modal.Image":
         logger.info(f"Using custom sandbox image from {example_dir}/sandbox.py")
     else:
         # Default image with common dependencies
-        sandbox_image = (
-            modal.Image.debian_slim()
-            .run_commands("uv pip install --system pytest numpy")  # Add common evaluation dependencies
-        )
+        sandbox_image = modal.Image.debian_slim().run_commands(
+            "uv pip install --system pytest numpy"
+        )  # Add common evaluation dependencies
         logger.info(f"Using default sandbox image for {evaluation_file}")
 
     return sandbox_image

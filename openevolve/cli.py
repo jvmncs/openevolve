@@ -7,10 +7,9 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Dict, List, Optional
 
 from openevolve import OpenEvolve
-from openevolve.config import Config, load_config
+from openevolve.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("initial_program", help="Path to the initial program file")
 
     parser.add_argument(
-        "evaluation_file", help="Path to the evaluation file containing an 'evaluate' function"
+        "evaluation_file",
+        help="Path to the evaluation file containing an 'evaluate' function",
     )
 
     parser.add_argument("--config", "-c", help="Path to configuration file (YAML)", default=None)
@@ -30,7 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", "-o", help="Output directory for results", default=None)
 
     parser.add_argument(
-        "--iterations", "-i", help="Maximum number of iterations", type=int, default=None
+        "--iterations",
+        "-i",
+        help="Maximum number of iterations",
+        type=int,
+        default=None,
     )
 
     parser.add_argument(
@@ -108,6 +112,7 @@ async def main_async() -> int:
     try:
         if args.distributed:
             from openevolve.distributed_controller import DistributedController
+
             print("Using distributed Modal-based controller")
             openevolve = DistributedController(
                 initial_program_path=args.initial_program,
@@ -160,8 +165,8 @@ async def main_async() -> int:
                     checkpoints, key=lambda x: int(x.split("_")[-1]) if "_" in x else 0
                 )[-1]
 
-        print(f"\nEvolution complete!")
-        print(f"Best program metrics:")
+        print("\nEvolution complete!")
+        print("Best program metrics:")
         for name, value in best_program.metrics.items():
             # Handle mixed types: format numbers as floats, others as strings
             if isinstance(value, (int, float)):
