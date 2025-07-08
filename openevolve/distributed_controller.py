@@ -213,11 +213,6 @@ async def evolve_worker(config: Config, evaluation_file: str):
             "openevolve", "evaluate_program"
         )
 
-        # Build sandbox image locally for this worker
-        from openevolve.sandboxed_execution import build_sandbox_image
-
-        sandbox_image = build_sandbox_image(evaluation_file)
-
         hub = hub_cls()
 
         # 1. Get iteration number
@@ -371,20 +366,12 @@ async def evaluate_program(
     logger.info(f"Evaluating program {program_id}")
 
     try:
-        # Import here to avoid circular imports
-        from openevolve.sandboxed_execution import SandboxExecutor, build_sandbox_image
-
-        # Build sandbox image locally
-        sandbox_image = build_sandbox_image(evaluation_file)
-
         # Use the SandboxExecutor from the shared app
         executor_cls = modal.Cls.from_name("openevolve", "SandboxExecutor")
-        executor = executor_cls()
+        executor = executor_cls(evaluation_file=evaluation_file)
 
         # Evaluate the program using the executor
-        metrics = await executor.evaluate_program.remote.aio(
-            code, program_id, sandbox_image
-        )
+        metrics = await executor.evaluate_program.remote.aio(code, program_id)
 
         # Note: artifacts collection could be extended here if needed
         artifacts = {}
@@ -466,13 +453,9 @@ class DistributedController:
         self.evaluation_file = evaluation_file
 
         # Upload evaluation script to Modal volume once
-        from openevolve.sandboxed_execution import (
-            upload_evaluation_script,
-            build_sandbox_image,
-        )
+        from openevolve.sandboxed_execution import upload_evaluation_script
 
         self.evaluation_volume = upload_evaluation_script(evaluation_file)
-        self.sandbox_image = build_sandbox_image(evaluation_file)
 
         # Store the evaluation file separately since we need to pass it to workers
         self.evaluation_file_path = evaluation_file

@@ -89,19 +89,21 @@ class SandboxExecutor:
     Manages Modal sandbox creation and code execution for evaluations.
     """
 
+    evaluation_file: str = modal.parameter()
+
     @modal.enter()
     def setup(self):
-        """Initialize the sandbox executor."""
+        """Initialize the sandbox executor with evaluation file."""
         self.volume = evaluation_volume
-        logger.info("Initialized SandboxExecutor with shared app")
+        self.sandbox_image = build_sandbox_image(self.evaluation_file)
+        logger.info(
+            f"Initialized SandboxExecutor with evaluation file: {self.evaluation_file}"
+        )
 
     @modal.method()
-    async def create_sandbox(self, sandbox_image: "modal.Image") -> "modal.Sandbox":
+    async def create_sandbox(self) -> "modal.Sandbox":
         """
         Create a new Modal sandbox with the configured image and security settings.
-
-        Args:
-            sandbox_image: Modal Image to use for the sandbox
 
         Returns:
             A new Modal Sandbox instance
@@ -110,7 +112,7 @@ class SandboxExecutor:
             sandbox = await asyncio.to_thread(
                 modal.Sandbox.create,
                 app=app,
-                image=sandbox_image,
+                image=self.sandbox_image,
                 volumes={"/eval": self.volume},
                 block_network=True,  # Block all network access for security
                 cpu=0.25,  # Limit CPU to prevent resource exhaustion
@@ -215,7 +217,7 @@ except Exception as e:
 
     @modal.method()
     async def evaluate_program(
-        self, program_code: str, program_id: str, sandbox_image: "modal.Image"
+        self, program_code: str, program_id: str
     ) -> Dict[str, float]:
         """
         Create a sandbox, evaluate a program, and clean up.
@@ -223,15 +225,16 @@ except Exception as e:
         Args:
             program_code: The program code to evaluate
             program_id: Unique identifier for the program
-            sandbox_image: Modal Image to use for the sandbox
 
         Returns:
             Dictionary of metric names to scores
         """
         sandbox = None
         try:
-            sandbox = await self.create_sandbox(sandbox_image)
-            result = await self.evaluate_in_sandbox(sandbox, program_code, program_id)
+            sandbox = await self.create_sandbox.remote.aio()
+            result = await self.evaluate_in_sandbox.remote.aio(
+                sandbox, program_code, program_id
+            )
             return result
         finally:
             if sandbox:
