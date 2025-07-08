@@ -57,6 +57,13 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--secondary-model", help="Secondary LLM model name", default=None)
 
+    parser.add_argument(
+        "--distributed",
+        help="Use distributed Modal-based controller for auto-scaling",
+        action="store_true",
+        default=False,
+    )
+
     return parser.parse_args()
 
 
@@ -97,15 +104,26 @@ async def main_async() -> int:
             config.llm.secondary_model = args.secondary_model
             print(f"Using secondary model: {config.llm.secondary_model}")
 
-    # Initialize OpenEvolve
+    # Initialize OpenEvolve (choose distributed or sequential)
     try:
-        openevolve = OpenEvolve(
-            initial_program_path=args.initial_program,
-            evaluation_file=args.evaluation_file,
-            config=config,
-            config_path=args.config if config is None else None,
-            output_dir=args.output,
-        )
+        if args.distributed:
+            from openevolve.distributed_controller import DistributedController
+            print("Using distributed Modal-based controller")
+            openevolve = DistributedController(
+                initial_program_path=args.initial_program,
+                evaluation_file=args.evaluation_file,
+                config=config,
+                config_path=args.config if config is None else None,
+                output_dir=args.output,
+            )
+        else:
+            openevolve = OpenEvolve(
+                initial_program_path=args.initial_program,
+                evaluation_file=args.evaluation_file,
+                config=config,
+                config_path=args.config if config is None else None,
+                output_dir=args.output,
+            )
 
         # Load from checkpoint if specified
         if args.checkpoint:
