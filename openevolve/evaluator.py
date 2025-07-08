@@ -24,7 +24,7 @@ from openevolve.database import ProgramDatabase
 from openevolve.evaluation_result import EvaluationResult
 from openevolve.database import ProgramDatabase
 from openevolve.llm.ensemble import LLMEnsemble
-from openevolve.utils.async_utils import TaskPool, run_in_executor
+from openevolve.utils.async_utils import run_in_executor
 from openevolve.prompt.sampler import PromptSampler
 from openevolve.utils.format_utils import format_metrics_safe
 from openevolve.sandboxed_execution import (
@@ -56,9 +56,6 @@ class Evaluator:
         self.llm_ensemble = llm_ensemble
         self.prompt_sampler = prompt_sampler
         self.database = database
-
-        # Create a task pool for parallel evaluation
-        self.task_pool = TaskPool(max_concurrency=config.parallel_evaluations)
 
         # Check if sandboxed execution is requested
         self.sandbox_executor = None
@@ -127,140 +124,76 @@ class Evaluator:
         Returns:
             Dictionary of metric name to score
         """
-        start_time = time.time()
-        program_id_str = f" {program_id}" if program_id else ""
-
-        # Check if artifacts are enabled
-        artifacts_enabled = os.environ.get("ENABLE_ARTIFACTS", "true").lower() == "true"
-
-        # Local execution path
+        # Import here to avoid circular imports
+        from openevolve.evaluation_engine import evaluate_once
+        
         # Retry logic for evaluation
         last_exception = None
         for attempt in range(self.config.max_retries + 1):
-            # Create a temporary file for the program
-            with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_file:
-                temp_file.write(program_code.encode("utf-8"))
-                temp_file_path = temp_file.name
-
             try:
-                # Run evaluation
-                if self.config.cascade_evaluation:
-                    # Run cascade evaluation
-                    result = await self._cascade_evaluate(temp_file_path)
-                else:
-                    # Run direct evaluation
-                    result = await self._direct_evaluate(temp_file_path)
-
-                # Process the result based on type
-                eval_result = self._process_evaluation_result(result)
-
-                # Check if this was a timeout and capture artifacts if enabled
-                if artifacts_enabled and program_id and eval_result.metrics.get("timeout") is True:
-                    if program_id not in self._pending_artifacts:
-                        self._pending_artifacts[program_id] = {}
-
-                    self._pending_artifacts[program_id].update(
-                        {
-                            "timeout": True,
-                            "timeout_duration": self.config.timeout,
-                            "failure_stage": "evaluation",
-                            "error_type": "timeout",
-                        }
-                    )
-
-                # Add LLM feedback if configured
-                llm_eval_result = None
-                if self.config.use_llm_feedback and self.llm_ensemble:
-                    llm_result = await self._llm_evaluate(program_code, program_id=program_id)
-                    llm_eval_result = self._process_evaluation_result(llm_result)
-
-                    # Combine metrics
-                    for name, value in llm_result.metrics.items():
-                        eval_result.metrics[f"llm_{name}"] = value * self.config.llm_feedback_weight
-
-                # Store artifacts if enabled and present
-                if (
-                    artifacts_enabled
-                    and (
-                        eval_result.has_artifacts()
-                        or (llm_eval_result and llm_eval_result.has_artifacts())
-                    )
-                    and program_id
-                ):
-                    if program_id not in self._pending_artifacts:
-                        self._pending_artifacts[program_id] = {}
-
-                    # Merge eval_result artifacts with llm artifacts if they exist
-                    if eval_result.has_artifacts():
-                        self._pending_artifacts[program_id].update(eval_result.artifacts)
-                        logger.debug(
-                            f"Program{program_id_str} returned artifacts: "
-                            f"{eval_result.artifacts}"
-                        )
-
-                    if llm_eval_result and llm_eval_result.has_artifacts():
-                        self._pending_artifacts[program_id].update(llm_eval_result.artifacts)
-                        logger.debug(
-                            f"Program{program_id_str} returned LLM artifacts: "
-                            f"{llm_eval_result.artifacts}"
-                        )
-
-                elapsed = time.time() - start_time
-                logger.info(
-                    f"Evaluated program{program_id_str} in {elapsed:.2f}s: "
-                    f"{format_metrics_safe(eval_result.metrics)}"
+                # Use the new evaluation engine
+                result = await evaluate_once(
+                    program_code=program_code,
+                    program_id=program_id,
+                    config=self.config,
+                    evaluation_file=self.evaluation_file,
+                    llm_ensemble=self.llm_ensemble,
+                    prompt_sampler=self.prompt_sampler,
+                    database=self.database,
+                    sandbox_executor=self.sandbox_executor,
                 )
-
+                
+                # Store artifacts if enabled
+                if result.has_artifacts() and program_id:
+                    self._pending_artifacts[program_id] = result.artifacts
+                
                 # Return just metrics for backward compatibility
-                return eval_result.metrics
-
+                return result.metrics
+                
             except asyncio.TimeoutError:
                 # Handle timeout specially - don't retry, just return timeout result
                 logger.warning(f"Evaluation timed out after {self.config.timeout}s")
-
+                
                 # Capture timeout artifacts if enabled
-                if artifacts_enabled and program_id:
+                if program_id:
                     self._pending_artifacts[program_id] = {
                         "timeout": True,
                         "timeout_duration": self.config.timeout,
                         "failure_stage": "evaluation",
                         "error_type": "timeout",
                     }
-
+                
                 return {"error": 0.0, "timeout": True}
-
+                
             except Exception as e:
                 last_exception = e
+                program_id_str = f" {program_id}" if program_id else ""
                 logger.warning(
                     f"Evaluation attempt {attempt + 1}/{self.config.max_retries + 1} failed for program{program_id_str}: {str(e)}"
                 )
-                traceback.print_exc()
-
+                
                 # Capture failure artifacts if enabled
-                if artifacts_enabled and program_id:
+                if program_id:
                     self._pending_artifacts[program_id] = {
                         "stderr": str(e),
                         "traceback": traceback.format_exc(),
                         "failure_stage": "evaluation",
                         "attempt": attempt + 1,
                     }
-
+                
                 # If this is not the last attempt, wait a bit before retrying
                 if attempt < self.config.max_retries:
                     await asyncio.sleep(1.0)  # Wait 1 second before retry
-
-            finally:
-                # Clean up temporary file
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-
+        
         # All retries failed
+        program_id_str = f" {program_id}" if program_id else ""
         logger.error(
             f"All evaluation attempts failed for program{program_id_str}. Last error: {str(last_exception)}"
         )
         return {"error": 0.0}
 
     def _process_evaluation_result(self, result: Any) -> EvaluationResult:
+        """DEPRECATED: Use evaluation_engine._process_evaluation_result instead"""
         """
         Process evaluation result to handle both dict and EvaluationResult returns
 
@@ -658,10 +591,7 @@ class Evaluator:
         Returns:
             List of metric dictionaries
         """
-
-        tasks = [
-            self.task_pool.create_task(self.evaluate_program, program_code, program_id)
-            for program_code, program_id in programs
-        ]
-
-        return await asyncio.gather(*tasks)
+        # Use asyncio.gather directly for parallel evaluation
+        return await asyncio.gather(
+            *[self.evaluate_program(program_code, program_id) for program_code, program_id in programs]
+        )

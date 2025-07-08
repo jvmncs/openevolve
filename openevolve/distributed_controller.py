@@ -6,6 +6,7 @@ while maintaining full compatibility with the original sequential Controller.
 """
 
 import asyncio
+import dataclasses
 import logging
 import os
 import time
@@ -17,7 +18,7 @@ import modal
 from openevolve.config import Config, load_config
 from openevolve.database import Program, ProgramDatabase
 from openevolve.llm.ensemble import LLMEnsemble
-from openevolve.modal_app import app, cpu_image, database_volume, inference_secret
+from openevolve.modal_app import app, cpu_image, database_volume, evaluation_volume, inference_secret
 from openevolve.prompt.sampler import PromptSampler
 from openevolve.utils.code_utils import (
     apply_diff,
@@ -190,6 +191,7 @@ class ControllerHub:
     min_containers=0,
     max_containers=400,
     timeout=900,
+    volumes={"/eval": evaluation_volume},
 )
 async def evolve_worker(config: Config, evaluation_file: str):
     """
@@ -200,8 +202,8 @@ async def evolve_worker(config: Config, evaluation_file: str):
         # Get deployed function references
         hub_cls = modal.Cls.from_name("openevolve", "ControllerHub")
         llm_generate_func = modal.Function.from_name("openevolve", "llm_generate")
-        evaluate_program_func = modal.Function.from_name(
-            "openevolve", "evaluate_program"
+        modal_evaluate_func = modal.Function.from_name(
+            "openevolve", "modal_evaluate"
         )
 
         hub = hub_cls()
@@ -260,8 +262,8 @@ async def evolve_worker(config: Config, evaluation_file: str):
 
         # 8. Evaluate the child program
         child_id = str(uuid.uuid4())
-        metrics, artifacts = await evaluate_program_func.remote.aio(
-            child_code, child_id, evaluation_file
+        metrics, artifacts = await modal_evaluate_func.remote.aio(
+            child_code, child_id, "/eval/evaluator.py", dataclasses.asdict(config.evaluator)
         )
 
         # 9. Create child program with full metadata
@@ -349,46 +351,118 @@ async def llm_generate(prompt: Dict[str, str], config: Config) -> str:
     min_containers=0,
     max_containers=256,
     timeout=600,
+    retries=3,
+    volumes={"/eval": evaluation_volume},
+)
+@modal.concurrent(max_inputs=64, target_inputs=32)
+async def modal_evaluate(
+    code: str, 
+    program_id: str, 
+    evaluation_file: str,
+    config_dict: Dict[str, Any],
+) -> Tuple[Dict[str, float], Dict[str, Any]]:
+    """
+    Modal-native wrapper around evaluation_engine.evaluate_once().
+    
+    Modal handles:
+    - Container isolation
+    - Exponential back-off retries
+    - Throttling / autoscaling
+    
+    Args:
+        code: The program code to evaluate
+        program_id: Unique identifier for the program
+        evaluation_file: Path to evaluation script
+        config_dict: Serialized EvaluatorConfig
+    
+    Returns:
+        Tuple of (metrics, artifacts)
+    """
+    logger.info(f"Evaluating program {program_id}")
+    
+    try:
+        # Re-hydrate config & helpers inside the container
+        from openevolve.config import EvaluatorConfig
+        from openevolve.llm.ensemble import LLMEnsemble
+        from openevolve.prompt.sampler import PromptSampler
+        from openevolve.evaluation_engine import evaluate_once
+        
+        config = EvaluatorConfig(**config_dict)
+        
+        # Set up optional components
+        llm_ensemble = None
+        prompt_sampler = None
+        if config.use_llm_feedback:
+            llm_ensemble = LLMEnsemble(config.llm.models)
+            prompt_sampler = PromptSampler(config.prompt)
+        
+        # Set up sandbox executor
+        sandbox_executor = None
+        if config.use_sandboxed_execution:
+            executor_cls = modal.Cls.from_name("openevolve", "SandboxExecutor")
+            sandbox_executor = executor_cls(evaluation_file=evaluation_file)
+        
+        # Use the volume-mounted evaluation file path
+        volume_evaluation_file = "/eval/evaluator.py"
+        
+        # Run the evaluation using the engine
+        result = await evaluate_once(
+            program_code=code,
+            program_id=program_id,
+            config=config,
+            evaluation_file=volume_evaluation_file,
+            llm_ensemble=llm_ensemble,
+            prompt_sampler=prompt_sampler,
+            database=None,  # database writes happen in the hub
+            sandbox_executor=sandbox_executor,
+        )
+        
+        logger.info(
+            f"Evaluation completed for {program_id}: score={result.metrics.get('score', 0):.4f}"
+        )
+        return result.metrics, result.artifacts
+        
+    except Exception as e:
+        logger.error(f"Evaluation failed for {program_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return error metrics with failure artifacts
+        failure_artifacts = {
+            "stderr": str(e),
+            "traceback": traceback.format_exc(),
+            "failure_stage": "evaluation",
+        }
+        
+        # Return error metrics - Modal will retry if appropriate
+        return {"score": 0.0, "error": str(e)}, failure_artifacts
+
+
+# Backward compatibility alias
+@app.function(
+    image=cpu_image,
+    min_containers=0,
+    max_containers=256,
+    timeout=600,
+    volumes={"/eval": evaluation_volume},
 )
 @modal.concurrent(max_inputs=64, target_inputs=32)
 async def evaluate_program(
     code: str, program_id: str, evaluation_file: str
 ) -> Tuple[Dict[str, float], Dict[str, Any]]:
     """
-    Securely evaluate LLM-generated code using SandboxExecutor.
-
-    Args:
-        code: The program code to evaluate
-        program_id: Unique identifier for the program
-        evaluation_file: Path to evaluation script (to build sandbox image)
-
-    Returns:
-        Tuple of (metrics, artifacts) where metrics is a dict of scores
+    Backward compatibility wrapper for the old evaluate_program function.
+    Uses basic evaluation without advanced features.
     """
-    logger.info(f"Evaluating program {program_id}")
-
-    try:
-        # Use the SandboxExecutor from the shared app
-        executor_cls = modal.Cls.from_name("openevolve", "SandboxExecutor")
-        executor = executor_cls(evaluation_file=evaluation_file)
-
-        # Evaluate the program using the executor
-        metrics = await executor.evaluate_program.remote.aio(code, program_id)
-
-        # Note: artifacts collection could be extended here if needed
-        artifacts = {}
-
-        logger.info(
-            f"Evaluation completed for {program_id}: score={metrics.get('score', 0):.4f}"
-        )
-        return metrics, artifacts
-
-    except Exception as e:
-        logger.error(f"Evaluation failed for {program_id}: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return {"score": 0.0, "error": str(e)}, {}
+    # Use basic config for backward compatibility
+    from openevolve.config import EvaluatorConfig
+    basic_config = EvaluatorConfig(
+        use_sandboxed_execution=True,
+        cascade_evaluation=False,
+        use_llm_feedback=False,
+    )
+    
+    return await modal_evaluate(code, program_id, "/eval/evaluator.py", dataclasses.asdict(basic_config))
 
 
 # ============================================================================
@@ -530,8 +604,8 @@ class DistributedController:
             "openevolve", "evolve_worker"
         )
         self.llm_generate_func = modal.Function.from_name("openevolve", "llm_generate")
-        self.evaluate_program_func = modal.Function.from_name(
-            "openevolve", "evaluate_program"
+        self.modal_evaluate_func = modal.Function.from_name(
+            "openevolve", "modal_evaluate"
         )
 
         logger.info("Modal app deployed and lookups configured")
@@ -554,10 +628,11 @@ class DistributedController:
 
             # Evaluate initial program
             initial_id = str(uuid.uuid4())
-            metrics, artifacts = await self.evaluate_program_func.remote.aio(
+            metrics, artifacts = await self.modal_evaluate_func.remote.aio(
                 self.initial_program_code,
                 initial_id,
-                self.evaluation_file,
+                "/eval/evaluator.py",
+                dataclasses.asdict(self.config.evaluator),
             )
 
             # Create initial program
@@ -617,7 +692,7 @@ class DistributedController:
                     # Spawn evolution workers and track them
                     hub = self._get_hub()
                     for _ in range(tasks_to_spawn):
-                        self.evolve_worker_func.spawn(self.config, self.evaluation_file)
+                        self.evolve_worker_func.spawn(self.config, "/eval/evaluator.py")
                         # Increment pending task count when we spawn
                         await hub.track_pending_task.remote.aio(1)
 
