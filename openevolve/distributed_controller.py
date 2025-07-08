@@ -53,7 +53,9 @@ logger = logging.getLogger(__name__)
     image=cpu_image,
     volumes={"/db": database_volume},
     timeout=60 * 60,  # Keep alive for 1 hour idle
+    max_containers=1,
 )
+@modal.concurrent(max_inputs=999)
 class ControllerHub:
     """
     Centralized database management with single-writer semantics.
