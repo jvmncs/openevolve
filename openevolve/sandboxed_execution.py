@@ -13,20 +13,15 @@ import os
 import sys
 import importlib.util
 import tempfile
+import functools
 from pathlib import Path
 from typing import Dict, Optional, Any
 
-try:
-    import modal
+import modal
 
-    MODAL_AVAILABLE = True
-except ImportError:
-    MODAL_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.warning("Modal is not installed. Sandbox execution will not be available.")
+from .modal_app import app, evaluation_volume, database_volume
 
-if MODAL_AVAILABLE:
-    logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def detect_sandbox_config(example_dir: str) -> bool:
@@ -39,8 +34,6 @@ def detect_sandbox_config(example_dir: str) -> bool:
     Returns:
         True if sandbox.py exists and exports sandbox_image
     """
-    if not MODAL_AVAILABLE:
-        return False
     sandbox_path = Path(example_dir) / "sandbox.py"
     if not sandbox_path.exists():
         return False
@@ -72,8 +65,6 @@ def load_sandbox_image(example_dir: str) -> "modal.Image":
     Raises:
         ImportError: If sandbox.py cannot be loaded or doesn't export sandbox_image
     """
-    if not MODAL_AVAILABLE:
-        raise ImportError("Modal is not installed")
     sandbox_path = Path(example_dir) / "sandbox.py"
 
     spec = importlib.util.spec_from_file_location("sandbox_config", sandbox_path)
@@ -86,64 +77,31 @@ def load_sandbox_image(example_dir: str) -> "modal.Image":
     if not hasattr(module, "sandbox_image"):
         raise ImportError(f"{sandbox_path} does not export 'sandbox_image'")
 
-    return module.sandbox_image
+    return module.sandbox_image  # type: ignore
 
 
+@app.cls(
+    volumes={"/eval": evaluation_volume},
+    timeout=60 * 60,  # Keep alive for 1 hour idle
+)
 class SandboxExecutor:
     """
     Manages Modal sandbox creation and code execution for evaluations.
     """
 
-    def __init__(self, sandbox_image: "modal.Image", evaluation_file: str):
+    @modal.enter()
+    def setup(self):
+        """Initialize the sandbox executor."""
+        self.volume = evaluation_volume
+        logger.info("Initialized SandboxExecutor with shared app")
+
+    @modal.method()
+    async def create_sandbox(self, sandbox_image: "modal.Image") -> "modal.Sandbox":
         """
-        Initialize the sandbox executor.
+        Create a new Modal sandbox with the configured image and security settings.
 
         Args:
-            sandbox_image: Modal Image to use for sandboxes
-            evaluation_file: Path to the evaluation script
-        """
-        if not MODAL_AVAILABLE:
-            raise ImportError("Modal is not installed")
-        self.sandbox_image = sandbox_image
-        self.evaluation_file = Path(evaluation_file)
-        self.evaluation_script_content = self.evaluation_file.read_text()
-
-        # Create a Modal app for this executor
-        app_name = f"openevolve-sandbox-{self.evaluation_file.stem}"
-        self.app = modal.App.lookup(app_name, create_if_missing=True)
-
-        # Create or get the shared volume for evaluation scripts
-        self.volume = modal.Volume.from_name(
-            "openevolve-evaluation-scripts", create_if_missing=True
-        )
-
-        # Upload the evaluation script to the volume
-        self._upload_evaluation_script()
-
-        logger.info(
-            f"Initialized SandboxExecutor with image and evaluation script {self.evaluation_file}"
-        )
-
-    def _upload_evaluation_script(self):
-        """Upload the evaluation script to the shared volume."""
-        try:
-            with self.volume.batch_upload(force=True) as batch:
-                # Upload the evaluation script as bytes
-                batch.put_file(
-                    io.BytesIO(self.evaluation_script_content.encode()),
-                    "/evaluator.py",
-                )
-
-            logger.debug(
-                f"Uploaded evaluation script to volume from {self.evaluation_file}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to upload evaluation script to volume: {e}")
-            raise
-
-    async def create_sandbox(self) -> "modal.Sandbox":
-        """
-        Create a new Modal sandbox with the configured image.
+            sandbox_image: Modal Image to use for the sandbox
 
         Returns:
             A new Modal Sandbox instance
@@ -151,10 +109,14 @@ class SandboxExecutor:
         try:
             sandbox = await asyncio.to_thread(
                 modal.Sandbox.create,
-                app=self.app,
-                image=self.sandbox_image,
+                app=app,
+                image=sandbox_image,
                 volumes={"/eval": self.volume},
+                block_network=True,  # Block all network access for security
+                cpu=0.25,  # Limit CPU to prevent resource exhaustion
+                memory=512,  # Memory limit in MiB
                 timeout=600,  # 10 minute timeout for long evaluations
+                workdir="/workspace",  # Set working directory
             )
             logger.debug(f"Created sandbox {sandbox.object_id}")
             return sandbox
@@ -162,6 +124,7 @@ class SandboxExecutor:
             logger.error(f"Failed to create sandbox: {e}")
             raise
 
+    @modal.method()
     async def evaluate_in_sandbox(
         self, sandbox: "modal.Sandbox", program_code: str, program_id: str
     ) -> Dict[str, float]:
@@ -250,8 +213,9 @@ except Exception as e:
             logger.error(f"Sandbox evaluation failed for {program_id}: {e}")
             return {"error": 0.0}
 
+    @modal.method()
     async def evaluate_program(
-        self, program_code: str, program_id: str
+        self, program_code: str, program_id: str, sandbox_image: "modal.Image"
     ) -> Dict[str, float]:
         """
         Create a sandbox, evaluate a program, and clean up.
@@ -259,13 +223,14 @@ except Exception as e:
         Args:
             program_code: The program code to evaluate
             program_id: Unique identifier for the program
+            sandbox_image: Modal Image to use for the sandbox
 
         Returns:
             Dictionary of metric names to scores
         """
         sandbox = None
         try:
-            sandbox = await self.create_sandbox()
+            sandbox = await self.create_sandbox(sandbox_image)
             result = await self.evaluate_in_sandbox(sandbox, program_code, program_id)
             return result
         finally:
@@ -275,3 +240,60 @@ except Exception as e:
                     logger.debug(f"Terminated sandbox {sandbox.object_id}")
                 except Exception as e:
                     logger.warning(f"Failed to terminate sandbox: {e}")
+
+
+def build_sandbox_image(evaluation_file: str) -> "modal.Image":
+    """
+    Build the appropriate sandbox image for the evaluation script.
+
+    Args:
+        evaluation_file: Path to the evaluation script
+
+    Returns:
+        A Modal Image configured for the evaluation
+    """
+    example_dir = Path(evaluation_file).parent
+
+    # Check if example has custom sandbox configuration
+    if detect_sandbox_config(example_dir):
+        sandbox_image = load_sandbox_image(example_dir)
+        logger.info(f"Using custom sandbox image from {example_dir}/sandbox.py")
+    else:
+        # Default image with common dependencies
+        sandbox_image = (
+            modal.Image.debian_slim()
+            .run_commands("uv pip install --system pytest numpy")  # Add common evaluation dependencies
+        )
+        logger.info(f"Using default sandbox image for {evaluation_file}")
+
+    return sandbox_image
+
+
+def upload_evaluation_script(evaluation_file: str) -> "modal.Volume":
+    """
+    Upload evaluation script to a Modal volume once at startup.
+
+    Args:
+        evaluation_file: Path to the evaluation script
+
+    Returns:
+        Modal Volume containing the evaluation script
+    """
+    # Use the shared evaluation volume
+    volume = evaluation_volume
+
+    evaluation_script_content = Path(evaluation_file).read_text()
+
+    try:
+        with volume.batch_upload(force=True) as batch:
+            # Upload the evaluation script as bytes
+            batch.put_file(
+                io.BytesIO(evaluation_script_content.encode()),
+                "/evaluator.py",
+            )
+
+        logger.info(f"Uploaded evaluation script to volume from {evaluation_file}")
+        return volume
+    except Exception as e:
+        logger.error(f"Failed to upload evaluation script to volume: {e}")
+        raise

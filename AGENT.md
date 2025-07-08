@@ -58,7 +58,7 @@ class MyClass:
 ```python
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("package1", "package2")
+    .run_commands("uv pip install --system package1 package2")
     .run_commands("command1", "command2")
     .env({"VAR": "value"})
 )
