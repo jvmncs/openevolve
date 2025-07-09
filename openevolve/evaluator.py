@@ -302,12 +302,29 @@ class Evaluator:
             # Run first stage with timeout
             try:
 
-                async def run_stage1():
-                    loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(None, module.evaluate_stage1, program_path)
+                # Use sandbox executor if available
+                if self.sandbox_executor:
+                    # Read the program code for sandbox execution
+                    with open(program_path, "r") as f:
+                        program_code = f.read()
+                    
+                    # Generate a unique ID for this evaluation
+                    import uuid
+                    stage1_program_id = str(uuid.uuid4())
+                    
+                    # Use sandbox executor with specific function
+                    stage1_result = await self.sandbox_executor.evaluate_program_with_function.remote.aio(
+                        program_code, stage1_program_id, "evaluate_stage1"
+                    )
+                    stage1_eval_result = self._process_evaluation_result(stage1_result)
+                else:
+                    # Fall back to local execution
+                    async def run_stage1():
+                        loop = asyncio.get_event_loop()
+                        return await loop.run_in_executor(None, module.evaluate_stage1, program_path)
 
-                stage1_result = await asyncio.wait_for(run_stage1(), timeout=self.config.timeout)
-                stage1_eval_result = self._process_evaluation_result(stage1_result)
+                    stage1_result = await asyncio.wait_for(run_stage1(), timeout=self.config.timeout)
+                    stage1_eval_result = self._process_evaluation_result(stage1_result)
             except asyncio.TimeoutError:
                 logger.warning(f"Stage 1 evaluation timed out after {self.config.timeout}s")
                 return EvaluationResult(
@@ -342,12 +359,29 @@ class Evaluator:
             # Run second stage with timeout
             try:
 
-                async def run_stage2():
-                    loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(None, module.evaluate_stage2, program_path)
+                # Use sandbox executor if available
+                if self.sandbox_executor:
+                    # Read the program code for sandbox execution
+                    with open(program_path, "r") as f:
+                        program_code = f.read()
+                    
+                    # Generate a unique ID for this evaluation
+                    import uuid
+                    stage2_program_id = str(uuid.uuid4())
+                    
+                    # Use sandbox executor with specific function
+                    stage2_result = await self.sandbox_executor.evaluate_program_with_function.remote.aio(
+                        program_code, stage2_program_id, "evaluate_stage2"
+                    )
+                    stage2_eval_result = self._process_evaluation_result(stage2_result)
+                else:
+                    # Fall back to local execution
+                    async def run_stage2():
+                        loop = asyncio.get_event_loop()
+                        return await loop.run_in_executor(None, module.evaluate_stage2, program_path)
 
-                stage2_result = await asyncio.wait_for(run_stage2(), timeout=self.config.timeout)
-                stage2_eval_result = self._process_evaluation_result(stage2_result)
+                    stage2_result = await asyncio.wait_for(run_stage2(), timeout=self.config.timeout)
+                    stage2_eval_result = self._process_evaluation_result(stage2_result)
             except asyncio.TimeoutError:
                 logger.warning(f"Stage 2 evaluation timed out after {self.config.timeout}s")
                 # Capture stage 2 failure, but keep stage 1 results
@@ -404,11 +438,27 @@ class Evaluator:
             # Run third stage with timeout
             try:
 
-                async def run_stage3():
-                    loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(None, module.evaluate_stage3, program_path)
+                # Use sandbox executor if available
+                if self.sandbox_executor:
+                    # Read the program code for sandbox execution
+                    with open(program_path, "r") as f:
+                        program_code = f.read()
+                    
+                    # Generate a unique ID for this evaluation
+                    import uuid
+                    stage3_program_id = str(uuid.uuid4())
+                    
+                    # Use sandbox executor with specific function
+                    stage3_result = await self.sandbox_executor.evaluate_program_with_function.remote.aio(
+                        program_code, stage3_program_id, "evaluate_stage3"
+                    )
+                else:
+                    # Fall back to local execution
+                    async def run_stage3():
+                        loop = asyncio.get_event_loop()
+                        return await loop.run_in_executor(None, module.evaluate_stage3, program_path)
 
-                stage3_result = await asyncio.wait_for(run_stage3(), timeout=self.config.timeout)
+                    stage3_result = await asyncio.wait_for(run_stage3(), timeout=self.config.timeout)
                 stage3_eval_result = self._process_evaluation_result(stage3_result)
             except asyncio.TimeoutError:
                 logger.warning(f"Stage 3 evaluation timed out after {self.config.timeout}s")

@@ -10,7 +10,7 @@ deployment_config:
   gpus_per_node: 1
   gpu_type: H100
 timeout: 10800
-scaledown_window: 900
+scaledown_window: 1800
 deployment_name: openevolve-inference
 deployment_tags:
   - openevolve

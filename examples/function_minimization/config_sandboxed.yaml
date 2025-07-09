@@ -1,7 +1,8 @@
-# Configuration for function minimization example
+# Configuration for function minimization example with enhanced sandboxed execution
 max_iterations: 100
 checkpoint_interval: 10
 log_level: "INFO"
+random_seed: 42
 
 # LLM configuration
 llm:
@@ -14,30 +15,139 @@ llm:
   top_p: 0.95
   max_tokens: 8192
   timeout: 600
+  retries: 3
+  retry_delay: 5
 
 # Prompt configuration
 prompt:
   system_message: "The assistant is an expert programmer specializing in optimization algorithms. The assistant's task is to improve a function minimization algorithm to find the global minimum of a complex function with many local minima. The function is f(x, y) = sin(x) * cos(y) + sin(x*y) + (x^2 + y^2)/20. The assistant focuses on improving the search_algorithm function to reliably find the global minimum, escaping local minima that might trap simple algorithms."
+  evaluator_system_message: "You are evaluating the performance of optimization algorithms for function minimization."
   num_top_programs: 3
+  num_diverse_programs: 2
   use_template_stochasticity: true
+  template_variations: {}
+  include_artifacts: true
+  max_artifact_bytes: 20480 # 20KB
+  artifact_security_filter: true
 
 # Database configuration
 database:
+  db_path: null # Will use in-memory or default path
+  in_memory: true
+  log_prompts: true
   population_size: 50
   archive_size: 20
   num_islands: 3
   elite_selection_ratio: 0.2
+  exploration_ratio: 0.1
   exploitation_ratio: 0.7
+  diversity_metric: "edit_distance"
+  feature_dimensions: ["score", "complexity"]
+  feature_bins: 10
+  migration_interval: 50
+  migration_rate: 0.1
+  random_seed: 42
+  # Artifact storage
+  artifacts_base_path: null
+  artifact_size_threshold: 32768 # 32KB
+  cleanup_old_artifacts: true
+  artifact_retention_days: 30
 
 # Evaluator configuration
 evaluator:
   timeout: 60
+  max_retries: 3
+  memory_limit_mb: null
+  cpu_limit: null
   cascade_evaluation: true
   cascade_thresholds: [0.5, 0.75]
   parallel_evaluations: 4
+  distributed: false
   use_llm_feedback: false
+  llm_feedback_weight: 0.1
+  llm_evaluation_template: "evaluation"
+  enable_artifacts: true
+  max_artifact_storage: 104857600 # 100MB
+  artifact_keys:
+    timeout: "timeout"
+    timeout_duration: "timeout_duration"
+    failure_stage: "failure_stage"
+    error_type: "error_type"
+    stderr: "stderr"
+    traceback: "traceback"
+    stage1_timeout: "stage1_timeout"
+    stage2_timeout: "stage2_timeout"
+    stage3_timeout: "stage3_timeout"
+    stage2_stderr: "stage2_stderr"
+    stage2_traceback: "stage2_traceback"
+    stage3_stderr: "stage3_stderr"
+    stage3_traceback: "stage3_traceback"
   use_sandboxed_execution: true
+  temp_file_suffix: ".py"
+  json_extract_patterns:
+    - "```json\\n(.*?)\\n```"
+    - "\\{.*\\}"
+
+  # Sandbox configuration
+  sandbox:
+    enabled: true
+    timeout: 120 # 2 minutes for function optimization
+    executor_idle_timeout: 1800 # 30 minutes
+    cpu_limit: 1.0 # Allow more CPU for optimization algorithms
+    memory_limit_mb: 1024 # 1GB for complex algorithms
+    block_network: true
+    working_directory: "/workspace"
+    evaluation_volume_path: "/eval"
+    default_dependencies: ["pytest", "numpy", "scipy", "matplotlib"] # Add scipy for optimization
+    max_concurrent_evaluations: 32
+    target_concurrent_evaluations: 16
+
+# Modal distributed execution configuration
+modal:
+  enabled: true # Disable distributed execution for this example
+  app_name: "openevolve"
+
+  # Controller Hub settings
+  hub_timeout: 3600
+  hub_max_containers: 1
+  hub_max_concurrent_requests: 999
+
+  # Evolution worker settings
+  worker_min_containers: 0
+  worker_max_containers: 100 # Smaller scale for function minimization
+  worker_timeout: 600
+  worker_buffer_size: 20
+
+  # LLM generation settings
+  llm_min_containers: 0
+  llm_max_containers: 10
+  llm_timeout: 600
+
+  # Evaluation settings
+  eval_min_containers: 0
+  eval_max_containers: 50
+  eval_timeout: 300
+  eval_retries: 3
+  eval_max_concurrent_inputs: 32
+  eval_target_concurrent_inputs: 16
+
+  # Volume paths
+  database_volume_path: "/db"
+  evaluation_volume_path: "/eval"
+
+  # Checkpointing
+  checkpoint_interval_generations: 10
+  export_best_interval_generations: 5
+
+  # Secret names
+  inference_secret_name: "inference-secret"
+
+  # Resume configuration
+  resume_from_checkpoint: true
+
+  # Status polling
+  status_poll_interval: 2.0
 
 # Evolution settings
 diff_based_evolution: true
-allow_full_rewrites: false
+max_code_length: 10000

@@ -78,7 +78,9 @@ class LLMConfig(LLMModelConfig):
         if self.primary_model_weight:
             self.models[0].weight = self.primary_model_weight
 
-        if (self.secondary_model or self.secondary_model_weight) and len(self.models) < 2:
+        if (self.secondary_model or self.secondary_model_weight) and len(
+            self.models
+        ) < 2:
             # Ensure we have a second model
             self.models.append(LLMModelConfig())
         if self.secondary_model:
@@ -104,7 +106,9 @@ class LLMConfig(LLMModelConfig):
         }
         self.update_model_params(shared_config)
 
-    def update_model_params(self, args: Dict[str, Any], overwrite: bool = False) -> None:
+    def update_model_params(
+        self, args: Dict[str, Any], overwrite: bool = False
+    ) -> None:
         """Update model parameters for all models"""
         for model in self.models + self.evaluator_models:
             for key, value in args.items():
@@ -161,7 +165,9 @@ class DatabaseConfig:
     diversity_metric: str = "edit_distance"  # Options: "edit_distance", "feature_based"
 
     # Feature map dimensions for MAP-Elites
-    feature_dimensions: List[str] = field(default_factory=lambda: ["score", "complexity"])
+    feature_dimensions: List[str] = field(
+        default_factory=lambda: ["score", "complexity"]
+    )
     feature_bins: int = 10
 
     # Migration parameters for island-based evolution
@@ -179,6 +185,34 @@ class DatabaseConfig:
 
 
 @dataclass
+class SandboxConfig:
+    """Configuration for sandboxed execution"""
+
+    # General sandbox settings
+    enabled: bool = False
+    timeout: int = 600  # 10 minutes per sandbox
+    executor_idle_timeout: int = 3600  # 1 hour idle timeout for executor
+
+    # Resource limits
+    cpu_limit: float = 0.25  # CPU limit to prevent resource exhaustion
+    memory_limit_mb: int = 512  # Memory limit in MiB
+
+    # Security settings
+    block_network: bool = True  # Block network access for security
+    working_directory: str = "/workspace"  # Working directory inside sandbox
+
+    # Volume configuration
+    evaluation_volume_path: str = "/eval"  # Path to mount evaluation volume
+
+    # Default dependencies for sandbox image
+    default_dependencies: List[str] = field(default_factory=lambda: ["pytest", "numpy"])
+
+    # Concurrency settings
+    max_concurrent_evaluations: int = 64
+    target_concurrent_evaluations: int = 32
+
+
+@dataclass
 class EvaluatorConfig:
     """Configuration for program evaluation"""
 
@@ -186,7 +220,7 @@ class EvaluatorConfig:
     timeout: int = 300  # Maximum evaluation time in seconds
     max_retries: int = 3
 
-    # Resource limits for evaluation
+    # Resource limits for evaluation (legacy - moved to SandboxConfig)
     memory_limit_mb: Optional[int] = None
     cpu_limit: Optional[float] = None
 
@@ -201,13 +235,95 @@ class EvaluatorConfig:
     # LLM-based feedback
     use_llm_feedback: bool = False
     llm_feedback_weight: float = 0.1
+    llm_evaluation_template: str = "evaluation"  # Template key for LLM evaluation
 
     # Artifact handling
     enable_artifacts: bool = True
     max_artifact_storage: int = 100 * 1024 * 1024  # 100MB per program
 
+    # Artifact keys configuration
+    artifact_keys: Dict[str, str] = field(
+        default_factory=lambda: {
+            "timeout": "timeout",
+            "timeout_duration": "timeout_duration",
+            "failure_stage": "failure_stage",
+            "error_type": "error_type",
+            "stderr": "stderr",
+            "traceback": "traceback",
+            "stage1_timeout": "stage1_timeout",
+            "stage2_timeout": "stage2_timeout",
+            "stage3_timeout": "stage3_timeout",
+            "stage2_stderr": "stage2_stderr",
+            "stage2_traceback": "stage2_traceback",
+            "stage3_stderr": "stage3_stderr",
+            "stage3_traceback": "stage3_traceback",
+        }
+    )
+
     # Sandboxed execution
     use_sandboxed_execution: bool = False  # Use Modal sandboxes for evaluation
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+
+    # File handling
+    temp_file_suffix: str = ".py"  # Suffix for temporary evaluation files
+
+    # JSON parsing configuration
+    json_extract_patterns: List[str] = field(
+        default_factory=lambda: [
+            r"```json\n(.*?)\n```",  # JSON code blocks
+            r"\{.*\}",  # Direct JSON objects
+        ]
+    )
+
+
+@dataclass
+class ModalConfig:
+    """Configuration for Modal distributed execution"""
+
+    # General Modal settings
+    enabled: bool = False
+    app_name: str = "openevolve"
+
+    # Controller Hub settings
+    hub_timeout: int = 3600  # 1 hour idle timeout
+    hub_max_containers: int = 1  # Single-writer semantics
+    hub_max_concurrent_requests: int = 999
+
+    # Evolution worker settings
+    worker_min_containers: int = 0
+    worker_max_containers: int = 400
+    worker_timeout: int = 900  # 15 minutes
+    worker_buffer_size: int = 50  # Reasonable buffer for throughput
+
+    # LLM generation settings
+    llm_min_containers: int = 0
+    llm_max_containers: int = 50  # CPU-only for HTTP calls
+    llm_timeout: int = 600  # 10 minutes
+
+    # Evaluation settings
+    eval_min_containers: int = 0
+    eval_max_containers: int = 256
+    eval_timeout: int = 600  # 10 minutes
+    eval_retries: int = 3
+    eval_max_concurrent_inputs: int = 64
+    eval_target_concurrent_inputs: int = 32
+
+    # Volume paths
+    database_volume_path: str = "/db"
+    evaluation_volume_path: str = "/eval"
+
+    # Checkpointing
+    checkpoint_interval_generations: int = 10
+    export_best_interval_generations: int = 5
+
+    # Secret names
+    inference_secret_name: str = "inference-secret"
+
+    # Resume configuration
+    resume_from_checkpoint: bool = True
+
+    # Status polling
+    status_poll_interval: float = 2.0  # seconds between status checks
 
 
 @dataclass
@@ -226,6 +342,7 @@ class Config:
     prompt: PromptConfig = field(default_factory=PromptConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     evaluator: EvaluatorConfig = field(default_factory=EvaluatorConfig)
+    modal: ModalConfig = field(default_factory=ModalConfig)
 
     # Evolution settings
     diff_based_evolution: bool = True
@@ -246,7 +363,13 @@ class Config:
 
         # Update top-level fields
         for key, value in config_dict.items():
-            if key not in ["llm", "prompt", "database", "evaluator"] and hasattr(config, key):
+            if key not in [
+                "llm",
+                "prompt",
+                "database",
+                "evaluator",
+                "modal",
+            ] and hasattr(config, key):
                 setattr(config, key, value)
 
         # Update nested configs
@@ -268,7 +391,13 @@ class Config:
         if config.database.random_seed is None and config.random_seed is not None:
             config.database.random_seed = config.random_seed
         if "evaluator" in config_dict:
-            config.evaluator = EvaluatorConfig(**config_dict["evaluator"])
+            evaluator_dict = config_dict["evaluator"]
+            # Handle nested SandboxConfig
+            if "sandbox" in evaluator_dict:
+                evaluator_dict["sandbox"] = SandboxConfig(**evaluator_dict["sandbox"])
+            config.evaluator = EvaluatorConfig(**evaluator_dict)
+        if "modal" in config_dict:
+            config.modal = ModalConfig(**config_dict["modal"])
 
         return config
 
@@ -301,9 +430,9 @@ class Config:
                 "num_diverse_programs": self.prompt.num_diverse_programs,
                 "use_template_stochasticity": self.prompt.use_template_stochasticity,
                 "template_variations": self.prompt.template_variations,
-                # Note: meta-prompting features not implemented
-                # "use_meta_prompting": self.prompt.use_meta_prompting,
-                # "meta_prompt_weight": self.prompt.meta_prompt_weight,
+                "include_artifacts": self.prompt.include_artifacts,
+                "max_artifact_bytes": self.prompt.max_artifact_bytes,
+                "artifact_security_filter": self.prompt.artifact_security_filter,
             },
             "database": {
                 "db_path": self.database.db_path,
@@ -314,28 +443,76 @@ class Config:
                 "elite_selection_ratio": self.database.elite_selection_ratio,
                 "exploration_ratio": self.database.exploration_ratio,
                 "exploitation_ratio": self.database.exploitation_ratio,
-                # Note: diversity_metric fixed to "edit_distance"
-                # "diversity_metric": self.database.diversity_metric,
+                "diversity_metric": self.database.diversity_metric,
                 "feature_dimensions": self.database.feature_dimensions,
                 "feature_bins": self.database.feature_bins,
                 "migration_interval": self.database.migration_interval,
                 "migration_rate": self.database.migration_rate,
                 "random_seed": self.database.random_seed,
                 "log_prompts": self.database.log_prompts,
+                "artifacts_base_path": self.database.artifacts_base_path,
+                "artifact_size_threshold": self.database.artifact_size_threshold,
+                "cleanup_old_artifacts": self.database.cleanup_old_artifacts,
+                "artifact_retention_days": self.database.artifact_retention_days,
             },
             "evaluator": {
                 "timeout": self.evaluator.timeout,
                 "max_retries": self.evaluator.max_retries,
-                # Note: resource limits not implemented
-                # "memory_limit_mb": self.evaluator.memory_limit_mb,
-                # "cpu_limit": self.evaluator.cpu_limit,
+                "memory_limit_mb": self.evaluator.memory_limit_mb,
+                "cpu_limit": self.evaluator.cpu_limit,
                 "cascade_evaluation": self.evaluator.cascade_evaluation,
                 "cascade_thresholds": self.evaluator.cascade_thresholds,
                 "parallel_evaluations": self.evaluator.parallel_evaluations,
-                # Note: distributed evaluation not implemented
-                # "distributed": self.evaluator.distributed,
+                "distributed": self.evaluator.distributed,
                 "use_llm_feedback": self.evaluator.use_llm_feedback,
                 "llm_feedback_weight": self.evaluator.llm_feedback_weight,
+                "llm_evaluation_template": self.evaluator.llm_evaluation_template,
+                "enable_artifacts": self.evaluator.enable_artifacts,
+                "max_artifact_storage": self.evaluator.max_artifact_storage,
+                "artifact_keys": self.evaluator.artifact_keys,
+                "use_sandboxed_execution": self.evaluator.use_sandboxed_execution,
+                "temp_file_suffix": self.evaluator.temp_file_suffix,
+                "json_extract_patterns": self.evaluator.json_extract_patterns,
+                "sandbox": {
+                    "enabled": self.evaluator.sandbox.enabled,
+                    "timeout": self.evaluator.sandbox.timeout,
+                    "executor_idle_timeout": self.evaluator.sandbox.executor_idle_timeout,
+                    "cpu_limit": self.evaluator.sandbox.cpu_limit,
+                    "memory_limit_mb": self.evaluator.sandbox.memory_limit_mb,
+                    "block_network": self.evaluator.sandbox.block_network,
+                    "working_directory": self.evaluator.sandbox.working_directory,
+                    "evaluation_volume_path": self.evaluator.sandbox.evaluation_volume_path,
+                    "default_dependencies": self.evaluator.sandbox.default_dependencies,
+                    "max_concurrent_evaluations": self.evaluator.sandbox.max_concurrent_evaluations,
+                    "target_concurrent_evaluations": self.evaluator.sandbox.target_concurrent_evaluations,
+                },
+            },
+            "modal": {
+                "enabled": self.modal.enabled,
+                "app_name": self.modal.app_name,
+                "hub_timeout": self.modal.hub_timeout,
+                "hub_max_containers": self.modal.hub_max_containers,
+                "hub_max_concurrent_requests": self.modal.hub_max_concurrent_requests,
+                "worker_min_containers": self.modal.worker_min_containers,
+                "worker_max_containers": self.modal.worker_max_containers,
+                "worker_timeout": self.modal.worker_timeout,
+                "worker_buffer_size": self.modal.worker_buffer_size,
+                "llm_min_containers": self.modal.llm_min_containers,
+                "llm_max_containers": self.modal.llm_max_containers,
+                "llm_timeout": self.modal.llm_timeout,
+                "eval_min_containers": self.modal.eval_min_containers,
+                "eval_max_containers": self.modal.eval_max_containers,
+                "eval_timeout": self.modal.eval_timeout,
+                "eval_retries": self.modal.eval_retries,
+                "eval_max_concurrent_inputs": self.modal.eval_max_concurrent_inputs,
+                "eval_target_concurrent_inputs": self.modal.eval_target_concurrent_inputs,
+                "database_volume_path": self.modal.database_volume_path,
+                "evaluation_volume_path": self.modal.evaluation_volume_path,
+                "checkpoint_interval_generations": self.modal.checkpoint_interval_generations,
+                "export_best_interval_generations": self.modal.export_best_interval_generations,
+                "inference_secret_name": self.modal.inference_secret_name,
+                "resume_from_checkpoint": self.modal.resume_from_checkpoint,
+                "status_poll_interval": self.modal.status_poll_interval,
             },
             # Evolution settings
             "diff_based_evolution": self.diff_based_evolution,
