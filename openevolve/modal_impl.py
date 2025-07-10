@@ -48,8 +48,7 @@ class _GenerationState:
 
     def is_full(self) -> bool:
         """Check if this generation is full (no more tasks to schedule)"""
-        # Use commits + pending instead of tasks_scheduled to handle worker failures
-        return self.tasks_committed + self.pending_tasks >= self.pop_size
+        return self.tasks_scheduled >= self.pop_size
 
     def reset_for_next_generation(self):
         """Reset state for the next generation"""
@@ -338,6 +337,21 @@ class ControllerHub:
             self.pending_tasks += delta
             return self.pending_tasks
 
+    @modal.method()
+    async def report_failed_task(self, generation_idx: int):
+        """
+        Called by a worker that obtained a parent but exited
+        without committing a child program.
+        Frees the slot so the producer can schedule a replacement.
+        """
+        async with self.lock:
+            # Ignore stray failures from old generations
+            if generation_idx != self.generation_state.generation_idx:
+                return
+            # Never go below zero
+            if self.generation_state.tasks_scheduled > 0:
+                self.generation_state.tasks_scheduled -= 1
+
     async def _export_best_program(self, generation_idx: int):
         """Export best program to volume for easy access"""
         best_program = self.db.get_best_program()
@@ -422,6 +436,10 @@ async def evolve_worker(config: Config, evaluation_file: str):
     Stateless evolution worker with full feature parity.
     Performs one complete evolution step: sample → LLM → parse → evaluate → commit.
     """
+    got_parent = False        # did we get a parent?
+    committed = False         # did we reach commit_child() successfully?
+    generation_idx = -1       # generation index for failure reporting
+    
     try:
         # Get deployed function references
         hub_cls = modal.Cls.from_name("openevolve", "ControllerHub")
@@ -442,6 +460,8 @@ async def evolve_worker(config: Config, evaluation_file: str):
         if generation_idx < 0:
             logger.debug("Generation is full, worker returning")
             return
+
+        got_parent = True     # from this point on a slot is reserved
 
         logger.info(
             f"Starting evolution generation {generation_idx}, candidate {candidate_idx}"
@@ -529,6 +549,8 @@ async def evolve_worker(config: Config, evaluation_file: str):
             llm_response,
             artifacts,
         )
+        
+        committed = True      # successful commit
 
         logger.info(
             f"Completed evolution generation {generation_idx}, candidate {candidate_idx}: score={metrics.get('score', 0):.4f}"
@@ -545,6 +567,13 @@ async def evolve_worker(config: Config, evaluation_file: str):
             await hub.track_pending_task.remote.aio(-1)
         except:
             pass
+        
+        # If we reserved a slot but never committed, tell the hub
+        if got_parent and not committed:
+            try:
+                await hub.report_failed_task.remote.aio(generation_idx)
+            except:
+                pass
 
 
 async def llm_generate(prompt: Dict[str, str], config: Config) -> str:

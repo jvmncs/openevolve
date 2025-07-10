@@ -301,8 +301,8 @@ class DistributedController:
 
                     # Calculate how many tasks to spawn
                     pending_tasks = stats["pending_tasks"]
-                    tasks_committed = stats["tasks_committed"]
-                    remaining_tasks = pop_size - (tasks_committed + pending_tasks)
+                    tasks_scheduled = stats["tasks_scheduled"]
+                    remaining_tasks = pop_size - tasks_scheduled
 
                     if remaining_tasks > 0:
                         # Spawn workers up to buffer size or remaining tasks
