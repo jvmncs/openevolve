@@ -293,7 +293,7 @@ class ModalConfig:
     worker_min_containers: int = 0
     worker_max_containers: int = 400
     worker_timeout: int = 900  # 15 minutes
-    worker_buffer_size: int = 50  # Reasonable buffer for throughput
+    worker_buffer_size: int = 100  # max active containers per generation
 
     # LLM generation settings
     llm_min_containers: int = 0
@@ -317,7 +317,7 @@ class ModalConfig:
     export_best_interval_generations: int = 5
 
     # Secret names
-    inference_secret_name: str = "inference-secret"
+    inference_secret_name: str = "inference-secret"  # TODO: currently unused
 
     # Resume configuration
     resume_from_checkpoint: bool = True

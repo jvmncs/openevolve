@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Modal Functions - Distributed Components
-# 
+#
 # NOTE: The actual Modal functions and classes are now dynamically configured
 # in modal_factory.py. This allows runtime configuration of container scaling,
 # timeouts, and other parameters through the Config system.
-# 
+#
 # The implementations are in modal_impl.py and the factory applies decorators
 # in register_modal_components().
 # ============================================================================
@@ -107,13 +107,19 @@ class DistributedController:
                 2**31
             )
             self.config.llm.random_seed = llm_seed
-            
+
             # Propagate seed to individual model configurations
             for model_cfg in self.config.llm.models:
-                if not hasattr(model_cfg, "random_seed") or model_cfg.random_seed is None:
+                if (
+                    not hasattr(model_cfg, "random_seed")
+                    or model_cfg.random_seed is None
+                ):
                     model_cfg.random_seed = llm_seed
             for model_cfg in self.config.llm.evaluator_models:
-                if not hasattr(model_cfg, "random_seed") or model_cfg.random_seed is None:
+                if (
+                    not hasattr(model_cfg, "random_seed")
+                    or model_cfg.random_seed is None
+                ):
                     model_cfg.random_seed = llm_seed
 
             logger.info(
@@ -252,12 +258,12 @@ class DistributedController:
             # Commit with proper prompt structure
             initial_prompt = {"system": "Initial program", "user": "Initial program"}
             await hub.commit_child.remote.aio(
-                0,                        # generation_idx
-                0,                        # candidate_idx
-                initial_program,          # child_program
-                initial_prompt,           # prompt
-                "Initial program",        # llm_response
-                artifacts                 # artifacts
+                0,  # generation_idx
+                0,  # candidate_idx
+                initial_program,  # child_program
+                initial_prompt,  # prompt
+                "Initial program",  # llm_response
+                artifacts,  # artifacts
             )
 
             logger.info(
@@ -274,8 +280,9 @@ class DistributedController:
         logger.info(f"Starting producer loop for {max_generations} generations")
 
         # Calculate population size from config
-        pop_size = self.config.database.population_size or 20
-        buffer_size = self.config.modal.worker_buffer_size  # Use configured buffer size
+        pop_size = self.config.database.population_size
+        # can't buffer more than pop_size in a single generation
+        buffer_size = min(self.config.modal.worker_buffer_size, pop_size)
 
         for generation in range(max_generations):
             if not self.running:
