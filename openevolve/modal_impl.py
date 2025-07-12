@@ -120,10 +120,20 @@ class ControllerHub:
 
         logger.info(f"Found checkpoint for generation {latest_gen}")
 
-        # Set generation state to resume from next generation
-        self.generation_state.generation_idx = latest_gen + 1
-
-        logger.info(f"Resuming from generation {self.generation_state.generation_idx}")
+        # Verify checkpoint integrity and determine proper resume generation
+        if os.path.exists(latest_checkpoint):
+            # Set generation state to resume from next generation
+            # This handles the race condition where workers might still be
+            # committing to the checkpointed generation
+            self.generation_state.generation_idx = latest_gen + 1
+            logger.info(
+                f"Resuming from generation {self.generation_state.generation_idx}"
+            )
+        else:
+            logger.warning(
+                f"Checkpoint file {latest_checkpoint} not found, starting fresh"
+            )
+            self.generation_state.generation_idx = 0
 
     @modal.method()
     async def start_generation(self, pop_size: int) -> int:
@@ -229,15 +239,30 @@ class ControllerHub:
     ):
         """Commit a child program to the database with full metadata"""
         async with self.lock:
-            # Validate generation
-            if generation_idx != self.generation_state.generation_idx:
+            # Accept commits from current or previous generation to handle checkpoint resumption race conditions
+            current_gen = self.generation_state.generation_idx
+            if generation_idx == current_gen:
+                # Normal case: commit to current generation
+                self.generation_state.staging_children.append(child_program)
+            elif generation_idx == current_gen - 1:
+                # Previous generation commit (likely from checkpoint resumption race condition)
+                logger.info(
+                    f"Accepting late commit from previous generation {generation_idx} (current: {current_gen})"
+                )
+                # Add directly to main database since previous generation should be complete
+                self.db.add_program(child_program)
+                if artifacts:
+                    self.db.add_artifacts(child_program.id, artifacts)
+                logger.info(f"Late commit added to database: {child_program.id}")
+                return
+            else:
+                # Invalid generation
                 logger.warning(
-                    f"Received commit for wrong generation: {generation_idx} != {self.generation_state.generation_idx}"
+                    f"Received commit for invalid generation: {generation_idx} (current: {current_gen})"
                 )
                 return
 
-            # Add to staging (not main database yet)
-            self.generation_state.staging_children.append(child_program)
+            # Increment tasks committed for current generation commits only
             self.generation_state.tasks_committed += 1
 
             # Log prompts and responses (can be done immediately)
@@ -436,10 +461,10 @@ async def evolve_worker(config: Config, evaluation_file: str):
     Stateless evolution worker with full feature parity.
     Performs one complete evolution step: sample → LLM → parse → evaluate → commit.
     """
-    got_parent = False        # did we get a parent?
-    committed = False         # did we reach commit_child() successfully?
-    generation_idx = -1       # generation index for failure reporting
-    
+    got_parent = False  # did we get a parent?
+    committed = False  # did we reach commit_child() successfully?
+    generation_idx = -1  # generation index for failure reporting
+
     try:
         # Get deployed function references
         hub_cls = modal.Cls.from_name("openevolve", "ControllerHub")
@@ -461,7 +486,7 @@ async def evolve_worker(config: Config, evaluation_file: str):
             logger.debug("Generation is full, worker returning")
             return
 
-        got_parent = True     # from this point on a slot is reserved
+        got_parent = True  # from this point on a slot is reserved
 
         logger.info(
             f"Starting evolution generation {generation_idx}, candidate {candidate_idx}"
@@ -549,8 +574,8 @@ async def evolve_worker(config: Config, evaluation_file: str):
             llm_response,
             artifacts,
         )
-        
-        committed = True      # successful commit
+
+        committed = True  # successful commit
 
         logger.info(
             f"Completed evolution generation {generation_idx}, candidate {candidate_idx}: score={metrics.get('score', 0):.4f}"
@@ -567,7 +592,7 @@ async def evolve_worker(config: Config, evaluation_file: str):
             await hub.track_pending_task.remote.aio(-1)
         except:
             pass
-        
+
         # If we reserved a slot but never committed, tell the hub
         if got_parent and not committed:
             try:
