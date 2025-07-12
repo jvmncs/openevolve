@@ -55,7 +55,9 @@ class ModalClusterConfig:
             "num_nodes": self.num_nodes,
             "gpus_per_node": self.gpus_per_node,
             "gpu_type": (
-                self.gpu_type.value if isinstance(self.gpu_type, ModalGPU) else self.gpu_type
+                self.gpu_type.value
+                if isinstance(self.gpu_type, ModalGPU)
+                else self.gpu_type
             ),
         }
 
@@ -117,7 +119,7 @@ class InferenceConfig:
             yaml.dump(self.to_dict(), f, default_flow_style=False)
 
 
-def ensure_vllm_secret(secret_name: str):
+def ensure_vllm_secret(secret_name: str, force: bool = False):
     # bit of a hack to get around the Python client being incomplete
     try:
         result = subprocess.run(
@@ -129,19 +131,19 @@ def ensure_vllm_secret(secret_name: str):
         secrets_list = json.loads(result.stdout)
         secret_exists = any(s["Name"] == secret_name for s in secrets_list)
 
-        if not secret_exists:
+        if not secret_exists or force:
             vllm_api_key = secrets.token_urlsafe(32)
             print(f"Creating secret '{secret_name}' with VLLM_API_KEY...")
-            subprocess.run(
-                [
-                    "modal",
-                    "secret",
-                    "create",
-                    secret_name,
-                    f"VLLM_API_KEY={vllm_api_key}",
-                ],
-                check=True,
-            )
+            create_cmd = [
+                "modal",
+                "secret",
+                "create",
+                secret_name,
+                f"VLLM_API_KEY={vllm_api_key}",
+            ]
+            if force:
+                create_cmd.append("--force")
+            subprocess.run(create_cmd, check=True)
             print(f"Secret '{secret_name}' created successfully.")
             cwd = pathlib.Path.cwd()
             local_secret_path = cwd / f"{secret_name}.secret"
@@ -171,16 +173,20 @@ def ensure_vllm_secret(secret_name: str):
 
 
 if __name__ == "__main__":
-    import sys
+    import argparse
 
-    default_secret_name = "openevolve-vllm-secret"
+    parser = argparse.ArgumentParser(description="Create or check VLLM secret")
+    parser.add_argument(
+        "secret_name",
+        nargs="?",
+        default="openevolve-vllm-secret",
+        help="Name of the secret to create or check (default: openevolve-vllm-secret)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force creation of the secret even if it already exists",
+    )
 
-    two_args = len(sys.argv) == 2
-    if len(sys.argv) >= 2:
-        raise ValueError("Expecting exactly one arg, the secret name.")
-    elif len(sys.argv) == 1:
-        secret_name = default_secret_name
-    else:
-        secret_name = sys.argv[1]
-
-    ensure_vllm_secret(secret_name)
+    args = parser.parse_args()
+    ensure_vllm_secret(args.secret_name, args.force)
