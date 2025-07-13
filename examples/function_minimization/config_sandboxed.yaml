@@ -116,7 +116,7 @@ modal:
   worker_min_containers: 0
   worker_max_containers: 100 # Smaller scale for function minimization
   worker_timeout: 600
-  worker_buffer_size: 20
+  worker_buffer_size: 50
 
   # LLM generation settings
   llm_min_containers: 0
